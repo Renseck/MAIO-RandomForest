@@ -7,6 +7,7 @@ Created on Mon Sep 25 11:37:09 2023
 import sklearn
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
@@ -47,8 +48,7 @@ for col in df.columns:
     if df[col].isna().sum() == len(df[col]):
         df[col].fillna(0, inplace = True)
     else:
-        df[col].fillna(df[col].mean(), inplace = True)
-        # This part in particular needs to be more clever
+        df[col] = df[col].interpolate(method = "linear")
     
 start_index = 0
 end_index = df["date_end"][df["date_end"] == pd.to_datetime("2018-01-01 00:00:00")].index[0]
@@ -84,12 +84,16 @@ y_pred = model.predict(x_pred)
 # Plot data and Calculate statistics by comparing y_pred with observation for 2018
 #==========================================
 plt.figure(figsize = (10,7))
-plt.title("Ozone concentration")
+plt.title(r"Ozone concentration ($n_{{estimators}} = {{{n_estimators}}}$)".format(n_estimators = model.n_estimators))
 
 plt.plot(df_pred["date"], y_pred, label = "Prediction")
 plt.plot(df_pred["date"], y_hat.values, label = "Observation", alpha = 0.5)
 
 plt.xlabel("Date")
 plt.xticks(rotation = 45)
-plt.ylabel("$\mu$g $m^{-3}$")
+plt.ylabel("Concentration $[\mu$g $m^{-3}]$")
 plt.legend()
+plt.show()
+
+corr = np.corrcoef(y_pred, y_hat.values)[0,1]
+print(f"Correlation: {corr:6.3f}")
