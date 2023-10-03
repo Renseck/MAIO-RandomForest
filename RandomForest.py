@@ -7,13 +7,16 @@ Created on Mon Sep 25 11:37:09 2023
 import sklearn
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split, GridSearchCV
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from scipy import stats
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from itertools import chain
 
 class Site():
+    # This is just used to store some site-specific information, in case it ever
+    # becomes useful for plotting or something.
     def __init__(self, siteNum, siteName, siteLat, siteLon, siteOrg, siteType, 
                  siteEu, siteTypeAlt, siteTypeAirbase, siteMunicipality, siteProvince,
                  siteArea):
@@ -31,6 +34,26 @@ class Site():
         self.siteArea = siteArea
 
 def hypertune(grid, x_data, y_data, scoring = None):
+    """
+    Tune hyperparameters of sklearn randomforestregressor.
+
+    Parameters
+    ----------
+    grid : DICT
+        Parameters (with ranges) to be optimized.
+    x_data : DATAFRAME
+        X-data to be trained.
+    y_data : DATAFRAME
+        Y-data to be trained.
+    scoring : STR, optional
+        Scoring scheme to use. The default is None.
+
+    Returns
+    -------
+    sklearn randomforestregressor
+        Tuned random forest regressor model.
+
+    """
     rf = RandomForestRegressor()
     grid_search = GridSearchCV(estimator = rf, param_grid = grid,
                                cv = 5, n_jobs = -1, scoring = scoring, verbose = 0)
@@ -40,6 +63,22 @@ def hypertune(grid, x_data, y_data, scoring = None):
     return grid_search.best_estimator_
 
 def clean_data(dataframe, verbose = True):
+    """
+    Remove NaNs of len > 1; interpolate rest
+
+    Parameters
+    ----------
+    dataframe : DATAFRAME
+       Pandas DataFrame
+    verbose : BOOL, optional
+        controls printing of output
+
+    Returns
+    -------
+    dataframe : DATAFRAME
+        Pandas DataFrame with all Nans removed
+
+    """
     before = dataframe.isna().sum()
     
     nan_stretches = {}
@@ -90,7 +129,7 @@ df = pd.read_csv("Rural_NL10644-AQ-METEO.csv", sep=";")
 target = "o3"
 relevant_cols = ["date", "date_end", "wd", "ws", "t", "q", "hourly_rain", "p", "n", "rh", target]
 
-# Split off unnecessarry columns but store them in singular variables (for speed)
+# Split off unnecessarry columns but store them in the Site class
 siteKeys = ["site", "name", "lat", "lon", "organisation", "type", "site_eu", "type_alt",
             "type_airbase", "municipality.name", "province.name", "air.quality.area"]
 siteValues = []
@@ -105,6 +144,7 @@ df["date_end"] = pd.to_datetime(df["date_end"])
 
 df = clean_data(df[relevant_cols])
     
+# Select the training and prediction subsets; define parameter tuning grid.
 start_index = 0
 end_index = df["date_end"][df["date_end"] == pd.to_datetime("2018-01-01 00:00:00")].index[0]
 df_train = df[start_index:end_index]
@@ -114,7 +154,7 @@ param_grid = {
     'bootstrap': [True, False],
     'max_depth': [15, 20, 25],
     'max_features': ["auto", "sqrt"],
-    'min_samples_leaf': [1, 3, 5],
+    'min_samples_leaf': [3, 5, 8],
     'min_samples_split': [2, 5, 8],
     'n_estimators': [30, 40, 50]
 }
@@ -147,6 +187,7 @@ print('R2 train score: {:6.3f}' .format(train_score))
 print('R2 test score: {:6.3f}' .format(test_score))
 print("Tuned R2 train score: {:6.3f}".format(tuned_train_score))
 print("Tuned R2 test score: {:6.3f}".format(tuned_test_score))
+# Severe overfitting?
 
 # Make a prediction for x_pred for 2018
 y_pred = model.predict(x_pred)
@@ -167,5 +208,28 @@ plt.ylabel("Concentration $[\mu$g $m^{-3}]$")
 plt.legend()
 plt.show()
 
-corr = np.corrcoef(y_pred, y_hat)[0,1]
-print(f"Correlation: {corr:6.3f}")
+rsquared = r2_score(y_hat, y_pred)
+rsquared_tuned = r2_score(y_hat, y_pred_tuned)
+print(f"Default R2: {rsquared:6.3f}")
+print(f"Tuned R2: {rsquared_tuned:6.3f}")
+
+# Can we do some accuracy testing here? Maybe using accuracy_score, confusion matrix...
+# Look into the overfitting as well - it may be an indicator of something going on.
+
+# Collect performance metric scores for default and tuned models
+default_scores = [rsquared, mean_squared_error(y_hat, y_pred, squared = False),
+                  mean_absolute_error(y_hat, y_pred)]  # Replace with your actual scores
+tuned_scores = [rsquared_tuned, mean_squared_error(y_hat, y_pred_tuned, squared = False),
+                mean_absolute_error(y_hat, y_pred_tuned)]    # Replace with your actual scores
+
+# Perform a paired t-test
+t_stat, p_value = stats.ttest_rel(tuned_scores, default_scores)
+
+# Set your significance level (alpha)
+alpha = 0.05
+
+# Check if the p-value is less than alpha
+if p_value < alpha:
+    print("Reject the null hypothesis: There is a statistically significant difference.")
+else:
+    print("Fail to reject the null hypothesis: There is no statistically significant difference.")
