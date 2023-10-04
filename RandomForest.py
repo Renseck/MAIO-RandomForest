@@ -172,7 +172,7 @@ def df_derived_by_shift(df,lag=0,NON_DER=[]):
         df = pd.concat([df, dfn], axis=1).reindex(df.index)
     return df
 
-def show_cross_correlation(df, target):
+def show_cross_correlation(df, target, time_shift):
     """
     Shows maximum correlation for time shifted variables and target.
 
@@ -189,19 +189,25 @@ def show_cross_correlation(df, target):
         List of maximally correlated variable per "category".
 
     """
-    df_new = df_derived_by_shift(df, 6, ["date", "date_end", target])
+    df_new = df_derived_by_shift(df, time_shift, ["date", "date_end", target])
+    time_shift_list = ["Base variable"] + ["Time shift +{}".format(i+1) for i in range(time_shift)]
     correlation = df_new.corr()
     meteo_vars = ["wd", "ws", "t", "q", "hourly_rain", "p", "n", "rh"]
     
     correls = []
-    print("Value after underscore shows the amount of time-steps. I.e., 1 means shifted by 1 step/hour.")
+    table = []
+    print("\nValue after underscore shows the amount of time-steps. I.e., 1 means shifted by 1 step/hour.")
     for meteo_var in meteo_vars:
-        correl = correlation.loc[target].filter(regex = meteo_var)
+        regex = "^" + meteo_var + "(_[0-9])?$"
+        correl = correlation.loc[target].filter(regex = regex)
+        table.append([meteo_var] + correl.to_list())
         max_correl = correl.abs().idxmax()
-        #print(f"{correl}")
+        # print(f"{correl}")
         print(f"Max correlation between {meteo_var} and {target}: {max_correl}")
         correls.append(max_correl)
+           
         
+    print("\n" + tabulate(table, headers = time_shift_list))
     return correls
 
 def add_shifts(df, train_cols, target):
@@ -225,7 +231,7 @@ def add_shifts(df, train_cols, target):
         List of "new" training columns.
 
     """
-    max_correl_shifts = show_cross_correlation(df, target)
+    max_correl_shifts = show_cross_correlation(df, target, time_shift = 6)
     
     for new_col in max_correl_shifts:
         splitup = new_col.split("_")
@@ -392,7 +398,7 @@ def run_singles(df, num_trees, features):
     
     # Sort table from highest to lowest R2 score.
     table.sort(key = lambda x: x[1], reverse = True)
-    print(tabulate(table, headers = ["Variable", "R^2", "RMSE", "Correlation"]))
+    print(tabulate(table, headers = ["Variable", "R^2", "RMSE", "Correlation"], tablefmt = "github"))
     
     return results_dict
 
@@ -417,6 +423,7 @@ def bonus_run(df, train_cols, target):
     """
     df, train_pred_cols = add_shifts(df, train_cols, target)
     y_pred_train, y_train = run(df, 30, train_pred_cols, True)
+    return df
     
     
 # %%% The start of the actual stuff
@@ -459,4 +466,5 @@ run(df, 20, features = train_pred_cols, plot = True)
 run(df, 40, features = train_pred_cols, plot = True)
 run_singles(df, 30, train_pred_cols)
 
-bonus_run(df, train_pred_cols, target)
+df = bonus_run(df, train_pred_cols, target)
+print("Data now contains following columns: {}".format(df.columns.to_list()))
