@@ -25,7 +25,18 @@ full_variable_names = {"wd": "Wind direction",
                        "hourly_rain": "Precipitation (hourly)",
                        "p": "Pressure",
                        "n": "Cloud cover",
-                       "rh": "Relative humidity"}
+                       "rh": "Relative humidity",
+                       "o3": "Ozone"}
+
+ylabels = {"wd": "Degrees",
+           "ws": "m/s",
+           "t": "$^{\circ}$C",
+           "q": "J/cm$^2$",
+           "hourly_rain": "mm",
+           "p": "hPa",
+           "n": "1/8",
+           "rh": "%",
+           "o3": "Concentration $[\mu$g $m^{-3}]$"}
 
 
 class Site():
@@ -110,6 +121,26 @@ def clean_data(dataframe, target, verbose=True):
         print("Number of NaNs in data after each column title: \n", result)
 
     return dataframe
+
+
+def show_data(df_train, df_pred):
+    meteo_vars = list(full_variable_names.keys())
+
+    fig, axd = plt.subplot_mosaic([["wd", "wd", "n", "n"], ["ws", "t", "q", "hourly_rain"],
+                                  ["p", "p", "rh", "rh"], ["o3", "o3", "o3", "o3"]], figsize=(11, 8))
+
+    for meteo_var in meteo_vars:
+        axd[meteo_var].set_title(full_variable_names[meteo_var])
+        axd[meteo_var].plot(df_train["date"], df_train[meteo_var], label="Training data")
+        axd[meteo_var].plot(df_pred["date"], df_pred[meteo_var], label="Prediction data")
+        axd[meteo_var].set_ylabel(ylabels[meteo_var])
+        axd[meteo_var].tick_params("x", labelrotation=45)
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    fig.text(0.5, 0, "Date", ha="center", va="center", rotation=0)
+    axd["wd"].legend(bbox_to_anchor=(0.9, 1.3))
+    plt.savefig(os.path.join(RESULTS_PATH, "data_showcase.jpg"))
+    plt.show()
 
 
 def hypertune(grid, x_data, y_data, scoring=None):
@@ -221,7 +252,7 @@ def show_cross_correlation(df, target, time_shift):
             f"Max correlation between {meteo_var} and {target}: {max_correl}")
         correls.append(max_correl)
 
-    print("\n" + tabulate(table, headers=time_shift_list))
+    print("\n" + tabulate(table, headers=time_shift_list, tablefmt = "github", floatfmt = "6.3f"))
     return correls
 
 
@@ -335,6 +366,8 @@ def run(df, num_trees, features, target, plot=True, filename_addition=""):
         rsquared = r2_score(y, y_pred_train)
         rmse = mean_squared_error(y, y_pred_train, squared=False)
         corr = np.corrcoef(y, y_pred_train)[0][1]
+        model_mean = np.mean(y_pred_train)
+        model_stdev = np.std(y_pred_train)
         label_text = "$R^2$ = {rsquared:6.3f} \nRMSE = {rmse:6.3f} \ncorr = {corr:6.3f}".format(
             rsquared=rsquared, rmse=rmse, corr=corr)
 
@@ -353,8 +386,9 @@ def run(df, num_trees, features, target, plot=True, filename_addition=""):
         plt.show()
         print(f"[TRAINING (trees = {model.n_estimators})] R2: {rsquared:6.3f}")
         print(f"[TRAINING (trees = {model.n_estimators})] RMSE: {rmse:6.3f}")
-        print(
-            f"[TRAINING (trees = {model.n_estimators})] Correlation: {corr:6.3f}")
+        print(f"[TRAINING (trees = {model.n_estimators})] Correlation: {corr:6.3f}")
+        print(f"[TRAINING (trees = {model.n_estimators})] Obs mean - model mean: {np.mean(y) - model_mean:6.3f}")
+        print(f"[TRAINING (trees = {model.n_estimators})] Obs stdev - model stdev  : {np.std(y) - model_stdev:6.3f}")
 
         # Plot prediction period (2018)
         plt.figure(figsize=(10, 7))
@@ -364,6 +398,8 @@ def run(df, num_trees, features, target, plot=True, filename_addition=""):
         rsquared = r2_score(y_hat, y_pred)
         rmse = mean_squared_error(y_hat, y_pred, squared=False)
         corr = np.corrcoef(y_hat, y_pred)[0][1]
+        model_mean = np.mean(y_pred)
+        model_stdev = np.std(y_pred)
         label_text = "$R^2$ = {rsquared:6.3f} \nRMSE = {rmse:6.3f} \ncorr = {corr:6.3f}".format(
             rsquared=rsquared, rmse=rmse, corr=corr)
 
@@ -385,8 +421,11 @@ def run(df, num_trees, features, target, plot=True, filename_addition=""):
         print(f"[PREDICTION (trees = {model.n_estimators})] RMSE: {rmse:6.3f}")
         print(
             f"[PREDICTION (trees = {model.n_estimators})] Correlation: {corr:6.3f}")
+        print(f"[PREDICTION (trees = {model.n_estimators})] Obs mean - model mean: {np.mean(y_hat) - model_mean:6.3f}")
+        print(
+            f"[PREDICTION (trees = {model.n_estimators})] Obs stdev - model stdev  : {np.std(y_hat) - model_stdev:6.3f}")
 
-    return y_pred_train, y_pred
+    return y_pred_train, y_pred, model
 
 
 def run_singles(df, num_trees, features, target):
@@ -427,7 +466,7 @@ def run_singles(df, num_trees, features, target):
     results_dict = {"y_pred_train": {}, "y_pred": {}}
     for feature in features:
         feature_name = feature
-        y_pred_train, y_pred = run(
+        y_pred_train, y_pred, model = run(
             df, num_trees, [feature], target, plot=False)
         results_dict["y_pred_train"][feature] = y_pred_train
         results_dict["y_pred"][feature] = y_pred
@@ -447,12 +486,15 @@ def run_singles(df, num_trees, features, target):
         rmse = mean_squared_error(
             y, results_dict["y_pred_train"][key], squared=False)
         corr = np.corrcoef(y, results_dict["y_pred_train"][key])[0][1]
-        table.append([full_variable_names[key], rsquared, rmse, corr])
+        mean_diff = np.mean(y) - np.mean(results_dict["y_pred_train"][key])
+        std_diff = np.std(y) - np.std(results_dict["y_pred_train"][key])
+        table.append([full_variable_names[key], rsquared, rmse, corr, mean_diff, std_diff])
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    axd["q"].legend(bbox_to_anchor=(1.05, 1.0))
+    axd["n"].legend(bbox_to_anchor=(0.2, 1.1))
     fig.suptitle("Effect of single variables on modelled data (training set)")
-    fig.text(-0.05, 0.5, "Ozone concentration $[\mu$g $m^{-3}]$",
+    fig.text(0.5, 0.025, "Date", ha="center", va="center", rotation=0)
+    fig.text(0.01, 0.5, "Ozone concentration $[\mu$g $m^{-3}]$",
              ha="center", va="center", rotation=90)
     plt.savefig(os.path.join(
         RESULTS_PATH, f"{target}_singles_comparison_Training.jpg"))
@@ -461,7 +503,7 @@ def run_singles(df, num_trees, features, target):
     # Sort table from highest to lowest R2 score.
     table.sort(key=lambda x: x[1], reverse=True)
     print(tabulate(table, headers=[
-          "Variable", "R^2", "RMSE", "Correlation"], tablefmt="github"))
+          "Variable", "R^2", "RMSE", "Correlation", "Mean diff", "Stdev diff"], tablefmt="github", floatfmt = "6.3f"))
 
     return results_dict
 
@@ -487,9 +529,9 @@ def bonus_run(df, train_cols, target, plot=True, filename_addition=""):
     """
     print("\nTHIS IS A BONUS RUN TO SEE IF ADDING\nTIMESHIFTED VARIABLES HELPS:")
     df, train_pred_cols = add_shifts(df, train_cols, target)
-    y_pred_train, y_train = run(
+    y_pred_train, y_train, model = run(
         df, 30, train_pred_cols, target, plot, filename_addition)
-    return df
+    return df, model
 
 
 # %%% The start of the actual stuff
@@ -523,6 +565,7 @@ df["hour_of_day"] = df["date"].dt.hour
 df["season"] = df["date"].dt.month % 12 // 3 + 1
 
 # Just remove negative values from the target variable.
+print(f"Number of negative values in {target}: {len(df[df[target] < 0][target])}")
 df = df.drop(df[df[target] < 0][target].index, axis=0)
 df = df.reset_index(drop=True)
 df = clean_data(df[relevant_cols], target)
@@ -536,16 +579,18 @@ df_pred = df[end_index:]
 X = df_train[train_pred_cols]
 y = df_train[target]
 
+show_data(df_train, df_pred)
+
 x_train, x_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42)
 x_pred = df_pred[train_pred_cols]
 y_hat = df_pred[target].values  # For comparison
 
-run(df, 30, features=train_pred_cols, target=target, plot=True)
-run(df, 20, features=train_pred_cols, target=target, plot=True)
-run(df, 40, features=train_pred_cols, target=target, plot=True)
-run_singles(df, 30, train_pred_cols, target)
+y_pred_train30, y_pred30, model30 = run(df, 30, features=train_pred_cols, target=target, plot=True)
+y_pred_train20, y_pred20, model20 = run(df, 20, features=train_pred_cols, target=target, plot=True)
+y_pred_train40, y_pred40, model40 = run(df, 40, features=train_pred_cols, target=target, plot=True)
+results_dict = run_singles(df, 30, train_pred_cols, target)
 
-df = bonus_run(df, train_pred_cols, target,
-               plot=True, filename_addition="_bonus")
+df, model_bonus = bonus_run(df, train_pred_cols, target,
+                            plot=True, filename_addition="_bonus")
 print("Data now contains following columns: {}".format(df.columns.to_list()))
