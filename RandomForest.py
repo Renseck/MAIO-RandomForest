@@ -384,6 +384,7 @@ def run(df, num_trees, features, target, plot=True, filename_addition=""):
         plt.savefig(os.path.join(
             RESULTS_PATH, filename + ".jpg"))
         plt.show()
+        print(f"[TRAINING (trees = {model.n_estimators})] Train score, test score: {train_score:6.3f}, \t {test_score:6.3f}")
         print(f"[TRAINING (trees = {model.n_estimators})] R2: {rsquared:6.3f}")
         print(f"[TRAINING (trees = {model.n_estimators})] RMSE: {rmse:6.3f}")
         print(f"[TRAINING (trees = {model.n_estimators})] Correlation: {corr:6.3f}")
@@ -529,9 +530,9 @@ def bonus_run(df, train_cols, target, plot=True, filename_addition=""):
     """
     print("\nTHIS IS A BONUS RUN TO SEE IF ADDING\nTIMESHIFTED VARIABLES HELPS:")
     df, train_pred_cols = add_shifts(df, train_cols, target)
-    y_pred_train, y_train, model = run(
+    y_pred_train, y_pred, model = run(
         df, 30, train_pred_cols, target, plot, filename_addition)
-    return df, model
+    return  y_pred_train, y_pred, df, model
 
 
 # %%% The start of the actual stuff
@@ -568,6 +569,7 @@ df["season"] = df["date"].dt.month % 12 // 3 + 1
 print(f"Number of negative values in {target}: {len(df[df[target] < 0][target])}")
 df = df.drop(df[df[target] < 0][target].index, axis=0)
 df = df.reset_index(drop=True)
+
 df = clean_data(df[relevant_cols], target)
 
 start_index = 0
@@ -587,10 +589,23 @@ x_pred = df_pred[train_pred_cols]
 y_hat = df_pred[target].values  # For comparison
 
 y_pred_train30, y_pred30, model30 = run(df, 30, features=train_pred_cols, target=target, plot=True)
-y_pred_train20, y_pred20, model20 = run(df, 20, features=train_pred_cols, target=target, plot=True)
-y_pred_train40, y_pred40, model40 = run(df, 40, features=train_pred_cols, target=target, plot=True)
+y_pred_train1, y_pred1, model1 = run(df, 1, features=train_pred_cols, target=target, plot=True)
+y_pred_train300, y_pred300, model300 = run(df, 300, features=train_pred_cols, target=target, plot=True)
 results_dict = run_singles(df, 30, train_pred_cols, target)
 
-df, model_bonus = bonus_run(df, train_pred_cols, target,
+y_pred_train_bonus, y_pred_bonus, df, model_bonus = bonus_run(df, train_pred_cols, target,
                             plot=True, filename_addition="_bonus")
 print("Data now contains following columns: {}".format(df.columns.to_list()))
+
+feat_importance30 = pd.Series(model30.feature_importances_, index = X.columns)
+feat_importance1 = pd.Series(model1.feature_importances_, index = X.columns)
+feat_importance300 = pd.Series(model300.feature_importances_, index = X.columns)
+
+df_importances = pd.concat([feat_importance30, feat_importance1, feat_importance300], axis = 1).rename(columns = {0: "Default", 1: "Small", 2: "Large"})
+df_importances["Feature"] = df_importances.index
+ax = df_importances.sort_values("Default", ascending = False).plot(x = "Feature", y = ["Default", "Small", "Large"], kind = "bar", figsize = (11,7))
+_ = plt.setp(ax.xaxis.get_majorticklabels(), rotation = 45, ha = "right")
+ax.set_ylabel("Importance")
+ax.set_title("Normalised feature importances")
+plt.savefig(os.path.join(RESULTS_PATH, "model_feature_importances.png"))
+plt.show()
