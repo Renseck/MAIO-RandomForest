@@ -1,8 +1,11 @@
 # MAIO-RandomForest
-Random forest analysis of air quality for the MAIO course of 2023-2024
+Random forest analysis of air quality for the MAIO course of 2023-2024.
+
+## Installation
+All required packages can be installed by running `pip install -r requirements.txt` in a Python-capable terminal window.
 
 ## Usage
-Everything should work out of the box, when run in something like Spyder. 
+Everything should work out of the box, when run in something like Spyder. This will generate all results and graphs used in the accompanying report (to be added here?). Some of the function (like `clean_data(...)` could in principle be used on other data, but I advise caution. This code has not been written to be reusable or easily adaptable, and will take a while to understand.
 
 ## License
 MIT License 
