@@ -359,73 +359,63 @@ def run(df, num_trees, features, target, plot=True, filename_addition=""):
     # ==========================================
     if plot:
         # Plot training period:
-        plt.figure(figsize=(10, 7))
-        plt.title(r"Ozone concentration ($n_{{estimators}} = {{{n_estimators}}}$) (Training)".format(
+        fig, axd = plt.subplot_mosaic([["top"], ["bottom"]], figsize = (11,7))
+        fig.text(0.005, 0.5, "Ozone concentration $[\mu$g $m^{-3}]$",
+                 ha="center", va="center", rotation=90)
+
+        rsquared_train = r2_score(y, y_pred_train)
+        rmse_train = mean_squared_error(y, y_pred_train, squared = False)
+        corr_train = np.corrcoef(y, y_pred_train)[0][1]
+        model_mean_train = np.mean(y_pred_train)
+        model_stdev_train = np.std(y_pred_train)
+        axd["top"].set_title(r"Ozone concentration ($n_{{estimators}} = {{{n_estimators}}}$) (Training)".format(
             n_estimators=model.n_estimators))
-
-        rsquared = r2_score(y, y_pred_train)
-        rmse = mean_squared_error(y, y_pred_train, squared=False)
-        corr = np.corrcoef(y, y_pred_train)[0][1]
-        model_mean = np.mean(y_pred_train)
-        model_stdev = np.std(y_pred_train)
+        axd["top"].plot(df_train["date"], y_pred_train, label = "Model")
+        axd["top"].plot(df_train["date"], y, label = "Observation", alpha = 0.5)
         label_text = "$R^2$ = {rsquared:6.3f} \nRMSE = {rmse:6.3f} \ncorr = {corr:6.3f}".format(
-            rsquared=rsquared, rmse=rmse, corr=corr)
-
-        plt.plot(df_train["date"], y_pred_train, label="Model")
-        plt.plot(df_train["date"], y, label="Observation", alpha=0.5)
-        plt.text(df_train["date"].iloc[0], 190, label_text, color="black", bbox=dict(
+            rsquared=rsquared_train, rmse=rmse_train, corr=corr_train)
+        axd["top"].text(df_train["date"].iloc[0], 170, label_text, color="black", bbox=dict(
             facecolor="none", edgecolor="gray", boxstyle="round"))
-        plt.xlabel("Date")
-        plt.xticks(rotation=45)
-        plt.ylabel("Concentration $[\mu$g $m^{-3}]$")
-        plt.legend()
-        filename = f"{target}_{model.n_estimators}_training" + \
-            filename_addition
-        plt.savefig(os.path.join(
-            RESULTS_PATH, filename + ".jpg"))
-        plt.show()
+        axd["top"].legend()
+
+
+        rsquared_pred = r2_score(y_hat, y_pred)
+        rmse_pred = mean_squared_error(y_hat, y_pred, squared = False)
+        corr_pred = np.corrcoef(y_hat, y_pred)[0][1]
+        model_mean_pred = np.mean(y_pred)
+        model_stdev_pred = np.std(y_pred)
+        axd["bottom"].set_title(r"Ozone concentration ($n_{{estimators}} = {{{n_estimators}}}$) (Prediction)".format(
+            n_estimators=model.n_estimators))
+        axd["bottom"].plot(df_pred["date"], y_pred, label = "Model")
+        axd["bottom"].plot(df_pred["date"], y_hat, label = "Observation", alpha = 0.5)
+        axd["bottom"].set_xlabel("Date")
+        label_text = "$R^2$ = {rsquared:6.3f} \nRMSE = {rmse:6.3f} \ncorr = {corr:6.3f}".format(
+            rsquared=rsquared_pred, rmse=rmse_pred, corr=corr_pred)
+        axd["bottom"].text(df_pred["date"].iloc[0], 157, label_text, color="black", bbox=dict(
+            facecolor="none", edgecolor="gray", boxstyle="round"))
+        axd["bottom"].legend()
         print(f"[TRAINING (trees = {model.n_estimators})] Train score, test score: {train_score:6.3f}, \t {test_score:6.3f}")
-        print(f"[TRAINING (trees = {model.n_estimators})] R2: {rsquared:6.3f}")
-        print(f"[TRAINING (trees = {model.n_estimators})] RMSE: {rmse:6.3f}")
-        print(f"[TRAINING (trees = {model.n_estimators})] Correlation: {corr:6.3f}")
-        print(f"[TRAINING (trees = {model.n_estimators})] Obs mean - model mean: {np.mean(y) - model_mean:6.3f}")
-        print(f"[TRAINING (trees = {model.n_estimators})] Obs stdev - model stdev  : {np.std(y) - model_stdev:6.3f}")
+        print(f"[TRAINING (trees = {model.n_estimators})] R2: {rsquared_train:6.3f}")
+        print(f"[TRAINING (trees = {model.n_estimators})] RMSE: {rmse_train:6.3f}")
+        print(f"[TRAINING (trees = {model.n_estimators})] Correlation: {corr_train:6.3f}")
+        print(f"[TRAINING (trees = {model.n_estimators})] Obs mean - model mean: {np.mean(y) - model_mean_train:6.3f}")
+        print(f"[TRAINING (trees = {model.n_estimators})] Obs stdev - model stdev  : {np.std(y) - model_stdev_train:6.3f}\n")
+        
+        print(
+            f"[PREDICTION (trees = {model.n_estimators})] R2: {rsquared_pred:6.3f}")
+        print(f"[PREDICTION (trees = {model.n_estimators})] RMSE: {rmse_pred:6.3f}")
+        print(
+            f"[PREDICTION (trees = {model.n_estimators})] Correlation: {corr_pred:6.3f}")
+        print(f"[PREDICTION (trees = {model.n_estimators})] Obs mean - model mean: {np.mean(y_hat) - model_mean_pred:6.3f}")
+        print(
+            f"[PREDICTION (trees = {model.n_estimators})] Obs stdev - model stdev  : {np.std(y_hat) - model_stdev_pred:6.3f}")
 
-        # Plot prediction period (2018)
-        plt.figure(figsize=(10, 7))
-        plt.title(r"Ozone concentration ($n_{{estimators}} = {{{n_estimators}}}$) (Prediction)".format(
-            n_estimators=model.n_estimators))
-
-        rsquared = r2_score(y_hat, y_pred)
-        rmse = mean_squared_error(y_hat, y_pred, squared=False)
-        corr = np.corrcoef(y_hat, y_pred)[0][1]
-        model_mean = np.mean(y_pred)
-        model_stdev = np.std(y_pred)
-        label_text = "$R^2$ = {rsquared:6.3f} \nRMSE = {rmse:6.3f} \ncorr = {corr:6.3f}".format(
-            rsquared=rsquared, rmse=rmse, corr=corr)
-
-        plt.plot(df_pred["date"], y_pred, label="Model")
-        plt.plot(df_pred["date"], y_hat, label="Observation", alpha=0.5)
-        plt.text(df_pred["date"].iloc[0], 180, label_text, color="black", bbox=dict(
-            facecolor="none", edgecolor="gray", boxstyle="round"))
-        plt.xlabel("Date")
-        plt.xticks(rotation=45)
-        plt.ylabel("Concentration $[\mu$g $m^{-3}]$")
-        plt.legend()
-        filename = f"{target}_{model.n_estimators}_prediction" + \
+        filename = f"{target}_{model.n_estimators}_combined_results" + \
             filename_addition
         plt.savefig(os.path.join(
             RESULTS_PATH, filename + ".jpg"))
         plt.show()
-        print(
-            f"[PREDICTION (trees = {model.n_estimators})] R2: {rsquared:6.3f}")
-        print(f"[PREDICTION (trees = {model.n_estimators})] RMSE: {rmse:6.3f}")
-        print(
-            f"[PREDICTION (trees = {model.n_estimators})] Correlation: {corr:6.3f}")
-        print(f"[PREDICTION (trees = {model.n_estimators})] Obs mean - model mean: {np.mean(y_hat) - model_mean:6.3f}")
-        print(
-            f"[PREDICTION (trees = {model.n_estimators})] Obs stdev - model stdev  : {np.std(y_hat) - model_stdev:6.3f}")
-
+       
     return y_pred_train, y_pred, model
 
 
