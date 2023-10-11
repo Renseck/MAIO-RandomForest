@@ -10,10 +10,14 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.metrics import mean_squared_error, r2_score
 import numpy as np
+from scipy.special import erf 
+from scipy.optimize import curve_fit
 import pandas as pd
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 from itertools import chain
 from tabulate import tabulate
+import concurrent.futures
 
 DATA_PATH = "data"
 RESULTS_PATH = "results"
@@ -76,6 +80,7 @@ def clean_data(dataframe, target, verbose=True):
         Pandas DataFrame with all Nans removed
 
     """
+    # With help from ChatGPT (only the NaN deletion part)
     before = dataframe.isna().sum()
     nan_stretches = {}
     for col in dataframe.columns:
@@ -172,8 +177,6 @@ def hypertune(grid, x_data, y_data, scoring=None):
     print("Best parameters: {}".format(grid_search.best_params_))
     return grid_search.best_estimator_
 
-# Credit to https://www.kaggle.com/code/dedecu/cross-correlation-time-lag-with-pandas/notebook
-
 
 def df_derived_by_shift(df, lag=0, NON_DER=[]):
     """
@@ -194,6 +197,7 @@ def df_derived_by_shift(df, lag=0, NON_DER=[]):
         DataFrame with included time shifted columns.
 
     """
+    # Credit to https://www.kaggle.com/code/dedecu/cross-correlation-time-lag-with-pandas/notebook
     df = df.copy()
     if not lag:
         return df
@@ -252,7 +256,7 @@ def show_cross_correlation(df, target, time_shift):
             f"Max correlation between {meteo_var} and {target}: {max_correl}")
         correls.append(max_correl)
 
-    print("\n" + tabulate(table, headers=time_shift_list, tablefmt = "github", floatfmt = "6.3f"))
+    print("\n" + tabulate(table, headers=time_shift_list, tablefmt="github", floatfmt="6.3f"))
     return correls
 
 
@@ -314,6 +318,8 @@ def run(df, num_trees, features, target, plot=True, filename_addition=""):
         What features to train on.
     plot : BOOL, optional
         Show plots or not. The default is True.
+    filename_addition: STR, optional
+        Adds a little extra to a filename for extra distinction.
 
     Returns
     -------
@@ -321,6 +327,8 @@ def run(df, num_trees, features, target, plot=True, filename_addition=""):
         Array of predicted data in training period.
     y_pred : NP.ARRAY
         Array of predicted data in prediction period.
+    model : RandomForestRegressor()
+        Model containing parameters.
 
     """
     start_index = 0
@@ -347,8 +355,6 @@ def run(df, num_trees, features, target, plot=True, filename_addition=""):
     # Determine the R2 score of the models
     train_score = model.score(x_train, y_train)
     test_score = model.score(x_test, y_test)
-    # print('R2 train score: {:6.3f}' .format(train_score))
-    # print('R2 test score: {:6.3f}' .format(test_score))
     # (Severe) overfitting?
 
     # Make a prediction for x_pred for 2018
@@ -358,55 +364,60 @@ def run(df, num_trees, features, target, plot=True, filename_addition=""):
     # Plot data and calculate statistics by comparing y_pred with observation data
     # ==========================================
     if plot:
-        # Plot training period:
-        fig, axd = plt.subplot_mosaic([["top"], ["bottom"]], figsize = (11,7))
-        fig.text(0.005, 0.5, "Ozone concentration $[\mu$g $m^{-3}]$",
-                 ha="center", va="center", rotation=90)
-
+        # Calculate statistical measures
         rsquared_train = r2_score(y, y_pred_train)
-        rmse_train = mean_squared_error(y, y_pred_train, squared = False)
+        rmse_train = mean_squared_error(y, y_pred_train, squared=False)
         corr_train = np.corrcoef(y, y_pred_train)[0][1]
         model_mean_train = np.mean(y_pred_train)
         model_stdev_train = np.std(y_pred_train)
+
+        # Plot training period:
+        fig, axd = plt.subplot_mosaic([["top"], ["bottom"]], figsize=(11, 7))
+        fig.text(0.005, 0.5, "Ozone concentration $[\mu$g $m^{-3}]$",
+                 ha="center", va="center", rotation=90)
         axd["top"].set_title(r"Ozone concentration ($n_{{estimators}} = {{{n_estimators}}}$) (Training)".format(
             n_estimators=model.n_estimators))
-        axd["top"].plot(df_train["date"], y_pred_train, label = "Model")
-        axd["top"].plot(df_train["date"], y, label = "Observation", alpha = 0.5)
+        axd["top"].plot(df_train["date"], y_pred_train, label="Model")
+        axd["top"].plot(df_train["date"], y, label="Observation", alpha=0.5)
         label_text = "$R^2$ = {rsquared:6.3f} \nRMSE = {rmse:6.3f} \ncorr = {corr:6.3f}".format(
             rsquared=rsquared_train, rmse=rmse_train, corr=corr_train)
         axd["top"].text(df_train["date"].iloc[0], 170, label_text, color="black", bbox=dict(
             facecolor="none", edgecolor="gray", boxstyle="round"))
         axd["top"].legend()
 
-
+        # And the same here for the next subplot
         rsquared_pred = r2_score(y_hat, y_pred)
-        rmse_pred = mean_squared_error(y_hat, y_pred, squared = False)
+        rmse_pred = mean_squared_error(y_hat, y_pred, squared=False)
         corr_pred = np.corrcoef(y_hat, y_pred)[0][1]
         model_mean_pred = np.mean(y_pred)
         model_stdev_pred = np.std(y_pred)
+
         axd["bottom"].set_title(r"Ozone concentration ($n_{{estimators}} = {{{n_estimators}}}$) (Prediction)".format(
             n_estimators=model.n_estimators))
-        axd["bottom"].plot(df_pred["date"], y_pred, label = "Model")
-        axd["bottom"].plot(df_pred["date"], y_hat, label = "Observation", alpha = 0.5)
+        axd["bottom"].plot(df_pred["date"], y_pred, label="Model")
+        axd["bottom"].plot(df_pred["date"], y_hat, label="Observation", alpha=0.5)
         axd["bottom"].set_xlabel("Date")
         label_text = "$R^2$ = {rsquared:6.3f} \nRMSE = {rmse:6.3f} \ncorr = {corr:6.3f}".format(
             rsquared=rsquared_pred, rmse=rmse_pred, corr=corr_pred)
         axd["bottom"].text(df_pred["date"].iloc[0], 157, label_text, color="black", bbox=dict(
             facecolor="none", edgecolor="gray", boxstyle="round"))
         axd["bottom"].legend()
-        print(f"[TRAINING (trees = {model.n_estimators})] Train score, test score: {train_score:6.3f}, \t {test_score:6.3f}")
+        print(
+            f"[TRAINING (trees = {model.n_estimators})] Train score, test score: {train_score:6.3f}, \t {test_score:6.3f}")
         print(f"[TRAINING (trees = {model.n_estimators})] R2: {rsquared_train:6.3f}")
         print(f"[TRAINING (trees = {model.n_estimators})] RMSE: {rmse_train:6.3f}")
         print(f"[TRAINING (trees = {model.n_estimators})] Correlation: {corr_train:6.3f}")
         print(f"[TRAINING (trees = {model.n_estimators})] Obs mean - model mean: {np.mean(y) - model_mean_train:6.3f}")
-        print(f"[TRAINING (trees = {model.n_estimators})] Obs stdev - model stdev  : {np.std(y) - model_stdev_train:6.3f}\n")
-        
+        print(
+            f"[TRAINING (trees = {model.n_estimators})] Obs stdev - model stdev  : {np.std(y) - model_stdev_train:6.3f}\n")
+
         print(
             f"[PREDICTION (trees = {model.n_estimators})] R2: {rsquared_pred:6.3f}")
         print(f"[PREDICTION (trees = {model.n_estimators})] RMSE: {rmse_pred:6.3f}")
         print(
             f"[PREDICTION (trees = {model.n_estimators})] Correlation: {corr_pred:6.3f}")
-        print(f"[PREDICTION (trees = {model.n_estimators})] Obs mean - model mean: {np.mean(y_hat) - model_mean_pred:6.3f}")
+        print(
+            f"[PREDICTION (trees = {model.n_estimators})] Obs mean - model mean: {np.mean(y_hat) - model_mean_pred:6.3f}")
         print(
             f"[PREDICTION (trees = {model.n_estimators})] Obs stdev - model stdev  : {np.std(y_hat) - model_stdev_pred:6.3f}")
 
@@ -415,7 +426,7 @@ def run(df, num_trees, features, target, plot=True, filename_addition=""):
         plt.savefig(os.path.join(
             RESULTS_PATH, filename + ".jpg"))
         plt.show()
-       
+
     return y_pred_train, y_pred, model
 
 
@@ -444,19 +455,16 @@ def run_singles(df, num_trees, features, target):
     end_index = df["date_end"][df["date_end"] ==
                                pd.to_datetime("2018-01-01 00:00:00")].index[0]
     df_train = df[start_index:end_index]
-    df_pred = df[end_index:]
 
     X = df_train[features]
     y = df_train[target]
 
     x_train, x_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42)
-    x_pred = df_pred[features]
-    y_hat = df_pred[target].values  # For comparison
+    # For comparison ^
 
     results_dict = {"y_pred_train": {}, "y_pred": {}}
     for feature in features:
-        feature_name = feature
         y_pred_train, y_pred, model = run(
             df, num_trees, [feature], target, plot=False)
         results_dict["y_pred_train"][feature] = y_pred_train
@@ -494,10 +502,92 @@ def run_singles(df, num_trees, features, target):
     # Sort table from highest to lowest R2 score.
     table.sort(key=lambda x: x[1], reverse=True)
     print(tabulate(table, headers=[
-          "Variable", "R^2", "RMSE", "Correlation", "Mean diff", "Stdev diff"], tablefmt="github", floatfmt = "6.3f"))
+          "Variable", "R^2", "RMSE", "Correlation", "Mean diff", "Stdev diff"], tablefmt="github", floatfmt="6.3f"))
 
     return results_dict
 
+def multithread_run(tree, fixed_args):
+    """
+    Multithreading helper function for the run() function
+
+    Parameters
+    ----------
+    tree : INT
+        Number of trees to run the model with.
+    fixed_args : LIST
+        List of fixed arguments to go in run().
+
+    Returns
+    -------
+    y_pred_train : NP.ARRAY
+        Array of predicted data in training period.
+    y_pred : NP.ARRAY
+        Array of predicted data in prediction period.
+    model : RandomForestRegressor()
+        Model containing parameters.
+
+    """
+    df, features, target = fixed_args
+    y_pred_train, y_pred, model = run(df, tree, features, target, plot = False)
+    return y_pred_train, y_pred, model
+
+def r2_fitfunction(x, a, b, c, d):
+    # Function to fit the r2 scores to, so we can get the asymptotic max value.
+    return (a)/(b*x + c) + d
+
+def trees_vs_r2(df, max_trees, features, target):
+    start_index = 0
+    end_index = df["date_end"][df["date_end"] ==
+                               pd.to_datetime("2018-01-01 00:00:00")].index[0]
+    df_train = df[start_index:end_index]
+    df_pred = df[end_index:]
+    
+    X = df_train[features]
+    y = df_train[target]
+
+    x_train, x_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42)
+    y_hat = df_pred[target].values  # For comparison
+    
+    
+    fixed_args = [df, train_pred_cols, target]
+    trees = range(1, max_trees + 1)
+    # Do some multithreading magic to cut down on computation time
+    with concurrent.futures.ThreadPoolExecutor() as exec:
+        max_workers = exec._max_workers
+        print(f"Starting multithread execution of tree-varying model run, maximum of {max_workers} workers.\n")
+        futures = tqdm([exec.submit(multithread_run, tree, fixed_args) for tree in trees])
+        results = [future.result() for future in futures]
+        
+    train_scores = []
+    pred_scores = []
+    
+    for result in results:
+        y_pred_train, y_pred, model = result
+        rsquared_train = r2_score(y, y_pred_train)
+        rsquared_pred = r2_score(y_hat, y_pred)
+        
+        train_scores.append(rsquared_train)
+        pred_scores.append(rsquared_pred)
+        
+    train_popt, _ = curve_fit(r2_fitfunction, np.array(trees), np.array(train_scores))
+    pred_popt, _ = curve_fit(r2_fitfunction, np.array(trees), np.array(pred_scores))
+    plt.figure(figsize = (11,7))
+    plt.title("Relation between number of trees and $R^2$")
+    plt.plot(trees, train_scores, label = "Training")
+    plt.hlines(train_popt[-1], min(trees), max(trees), color = "blue", linestyle = "dashed", alpha = 0.7)
+    plt.plot(trees, pred_scores, label = "Prediction")
+    plt.hlines(pred_popt[-1], min(trees), max(trees), color = "orange", linestyle = "dashed", alpha = 0.7)
+    plt.vlines(30, 0.6, 0.95, color = "grey", linestyle = "dashed", alpha = 0.8)
+    plt.scatter(30, train_scores[29], alpha = 0.7)
+    plt.scatter(30, pred_scores[29], alpha = 0.7 )
+    plt.xlabel("Number of trees")
+    plt.ylabel("$R^2$")
+    plt.legend()
+    plt.savefig(os.path.join(RESULTS_PATH, f"{target}_trees_vs_r2_{max_trees}.jpg"))
+    plt.show()
+
+    return train_scores, pred_scores
 
 def bonus_run(df, train_cols, target, plot=True, filename_addition=""):
     """
@@ -522,7 +612,7 @@ def bonus_run(df, train_cols, target, plot=True, filename_addition=""):
     df, train_pred_cols = add_shifts(df, train_cols, target)
     y_pred_train, y_pred, model = run(
         df, 30, train_pred_cols, target, plot, filename_addition)
-    return  y_pred_train, y_pred, df, model
+    return y_pred_train, y_pred, model
 
 
 # %%% The start of the actual stuff
@@ -571,8 +661,10 @@ df_pred = df[end_index:]
 X = df_train[train_pred_cols]
 y = df_train[target]
 
+# Show_case training data here
 show_data(df_train, df_pred)
 
+# Start splitting and training the models
 x_train, x_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42)
 x_pred = df_pred[train_pred_cols]
@@ -583,18 +675,22 @@ y_pred_train1, y_pred1, model1 = run(df, 1, features=train_pred_cols, target=tar
 y_pred_train300, y_pred300, model300 = run(df, 300, features=train_pred_cols, target=target, plot=True)
 results_dict = run_singles(df, 30, train_pred_cols, target)
 
-y_pred_train_bonus, y_pred_bonus, df, model_bonus = bonus_run(df, train_pred_cols, target,
-                            plot=True, filename_addition="_bonus")
-print("Data now contains following columns: {}".format(df.columns.to_list()))
+train_scores, pred_scores = trees_vs_r2(df, 100, train_pred_cols, target)
 
-feat_importance30 = pd.Series(model30.feature_importances_, index = X.columns)
-feat_importance1 = pd.Series(model1.feature_importances_, index = X.columns)
-feat_importance300 = pd.Series(model300.feature_importances_, index = X.columns)
+y_pred_train_bonus, y_pred_bonus, model_bonus = bonus_run(df, train_pred_cols, target,
+                                                              plot=True, filename_addition="_bonus")
 
-df_importances = pd.concat([feat_importance30, feat_importance1, feat_importance300], axis = 1).rename(columns = {0: "Default", 1: "Small", 2: "Large"})
+# Final bit of plotting
+feat_importance30 = pd.Series(model30.feature_importances_, index=X.columns)
+feat_importance1 = pd.Series(model1.feature_importances_, index=X.columns)
+feat_importance300 = pd.Series(model300.feature_importances_, index=X.columns)
+
+df_importances = pd.concat([feat_importance30, feat_importance1, feat_importance300],
+                           axis=1).rename(columns={0: "Default", 1: "Small", 2: "Large"})
 df_importances["Feature"] = df_importances.index
-ax = df_importances.sort_values("Default", ascending = False).plot(x = "Feature", y = ["Default", "Small", "Large"], kind = "bar", figsize = (11,7))
-_ = plt.setp(ax.xaxis.get_majorticklabels(), rotation = 45, ha = "right")
+ax = df_importances.sort_values("Default", ascending=False).plot(
+    x="Feature", y=["Default", "Small", "Large"], kind="bar", figsize=(11, 7))
+_ = plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha="right")
 ax.set_ylabel("Importance")
 ax.set_title("Normalised feature importances")
 plt.savefig(os.path.join(RESULTS_PATH, "model_feature_importances.png"))
