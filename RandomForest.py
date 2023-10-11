@@ -687,11 +687,14 @@ feat_importance300 = pd.Series(model300.feature_importances_, index=X.columns)
 
 df_importances = pd.concat([feat_importance30, feat_importance1, feat_importance300],
                            axis=1).rename(columns={0: "Default", 1: "Small", 2: "Large"})
-df_importances["Feature"] = df_importances.index
+df_importances["Feature"] = list(full_variable_names.values())[:-1] \
+                            + ["Month", "Day of month", "Hour of day", "Day of year", "Season"]
 ax = df_importances.sort_values("Default", ascending=False).plot(
     x="Feature", y=["Default", "Small", "Large"], kind="bar", figsize=(11, 7))
 _ = plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha="right")
+plt.tight_layout()
 ax.set_ylabel("Importance")
+ax.set_xlabel("Feature")
 ax.set_title("Normalised feature importances")
 plt.savefig(os.path.join(RESULTS_PATH, "model_feature_importances.png"))
 plt.show()
